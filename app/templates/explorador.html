@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+{% block title %}Explorador — DiscScope{% endblock %}
+{% block content %}
+<h1>Explorador</h1>
+<p class="page-description">Explorador simulat d'arxius i carpetes des de la base de dades (sense accés al sistema de fitxers).</p>
+
+<div class="explorer-layout">
+  <aside class="explorer-tree-panel" aria-label="Discs i carpetes">
+    <h2 class="explorer-tree-title">Discs / Carpetes</h2>
+    <div id="explorer-tree-loading" class="explorer-message">Carregant…</div>
+    <div id="explorer-tree-root" class="explorer-tree-container" role="tree" aria-label="Arbre de carpetes" hidden>
+      <ul class="explorer-tree-children" role="group"></ul>
+    </div>
+    <div id="explorer-tree-empty" class="explorer-message" hidden>No hi ha discs a la base de dades.</div>
+  </aside>
+  <section class="explorer-contents-panel" aria-label="Contingut de la carpeta">
+    <div id="explorer-contents-placeholder" class="explorer-message">
+      Seleccioneu un disc o una carpeta a l'esquerra.
+    </div>
+    <div id="explorer-contents-area" hidden>
+      <nav id="explorer-breadcrumb" class="explorer-breadcrumb" aria-label="Ruta"></nav>
+      <div id="explorer-contents-loading" class="explorer-message" hidden>Carregant…</div>
+      <div class="table-wrapper">
+        <table id="explorer-contents-table">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Tipus</th>
+              <th>Mida</th>
+              <th>Modificat</th>
+            </tr>
+          </thead>
+          <tbody id="explorer-contents-tbody"></tbody>
+        </table>
+      </div>
+      <div id="explorer-contents-more" class="explorer-load-more" hidden>
+        <button type="button" class="btn btn-primary" id="explorer-load-more-btn">Carregar més</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  function formatBytes(bytes) {
+    if (bytes == null || bytes === '') return '';
+    var n = Number(bytes);
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    for (var i = 0; i < u.length; i++) {
+      if (Math.abs(n) < 1024) return n.toFixed(1) + ' ' + u[i];
+      n /= 1024;
+    }
+    return n.toFixed(1) + ' PB';
+  }
+
+  var treeRoot = document.getElementById('explorer-tree-root');
+  var treeLoading = document.getElementById('explorer-tree-loading');
+  var treeEmpty = document.getElementById('explorer-tree-empty');
+  var contentsPlaceholder = document.getElementById('explorer-contents-placeholder');
+  var contentsArea = document.getElementById('explorer-contents-area');
+  var breadcrumb = document.getElementById('explorer-breadcrumb');
+  var contentsLoading = document.getElementById('explorer-contents-loading');
+  var tbody = document.getElementById('explorer-contents-tbody');
+  var contentsMore = document.getElementById('explorer-contents-more');
+  var loadMoreBtn = document.getElementById('explorer-load-more-btn');
+
+  var state = { selectedDrive: null, selectedPath: '', limit: 300, offset: 0, totalFiles: 0, hasMore: false };
+
+  function fetchJson(url) {
+    return fetch(url).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || r.statusText);
+        return data;
+      });
+    });
+  }
+
+  function renderTreeItem(id, label, isDrive, path, expanded, hasChildren, childrenEl) {
+    var li = document.createElement('li');
+    li.setAttribute('role', 'treeitem');
+    li.setAttribute('aria-expanded', hasChildren ? (expanded ? 'true' : 'false') : undefined);
+    li.setAttribute('data-drive', state.selectedDrive || '');
+    li.setAttribute('data-path', path || '');
+    li.setAttribute('data-is-drive', isDrive ? '1' : '');
+    li.className = 'explorer-tree-item' + (isDrive ? ' explorer-tree-drive' : '');
+    var wrap = document.createElement('span');
+    wrap.className = 'explorer-tree-item-inner';
+    var arrow = document.createElement('span');
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.className = 'explorer-tree-arrow';
+    if (hasChildren) arrow.textContent = expanded ? '\u25BC' : '\u25B6';
+    else arrow.textContent = '\u2003';
+    var icon = document.createElement('span');
+    icon.className = 'explorer-tree-icon';
+    icon.textContent = isDrive ? '\u24B8' : '\u1F4C1';
+    icon.setAttribute('aria-hidden', 'true');
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'explorer-tree-name';
+    nameSpan.textContent = label;
+    wrap.appendChild(arrow);
+    wrap.appendChild(icon);
+    wrap.appendChild(nameSpan);
+    li.appendChild(wrap);
+    if (childrenEl) {
+      var sub = document.createElement('ul');
+      sub.setAttribute('role', 'group');
+      sub.className = 'explorer-tree-children';
+      sub.appendChild(childrenEl);
+      li.appendChild(sub);
+    }
+    return li;
+  }
+
+  function addTreeNode(container, driveId, path, expanded, childrenData) {
+    var ul = container;
+    if (ul.getAttribute('role') !== 'group') {
+      var sub = document.createElement('ul');
+      sub.setAttribute('role', 'group');
+      sub.className = 'explorer-tree-children';
+      ul = sub;
+      container.appendChild(ul);
+    }
+    ul.innerHTML = '';
+    (childrenData.folders || []).forEach(function (f) {
+      var li = document.createElement('li');
+      li.setAttribute('role', 'treeitem');
+      li.setAttribute('aria-expanded', 'false');
+      li.setAttribute('data-drive', driveId);
+      li.setAttribute('data-path', f.path);
+      li.className = 'explorer-tree-item';
+      var wrap = document.createElement('span');
+      wrap.className = 'explorer-tree-item-inner';
+      var arrow = document.createElement('span');
+      arrow.setAttribute('aria-hidden', 'true');
+      arrow.className = 'explorer-tree-arrow';
+      arrow.textContent = '\u25B6';
+      var icon = document.createElement('span');
+      icon.className = 'explorer-tree-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = '\u1F4C1';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'explorer-tree-name';
+      nameSpan.textContent = f.name;
+      wrap.appendChild(arrow);
+      wrap.appendChild(icon);
+      wrap.appendChild(nameSpan);
+      li.appendChild(wrap);
+      li._loaded = false;
+      li._childrenData = null;
+      wrap.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var item = li;
+        var isExpand = item.getAttribute('aria-expanded') === 'false' && (item._childrenData || item.querySelector('[role="group"]'));
+        if (item.querySelector('[role="group"]')) {
+          var exp = item.getAttribute('aria-expanded') === 'true';
+          item.setAttribute('aria-expanded', !exp);
+          item.classList.toggle('explorer-tree-open', !exp);
+          var group = item.querySelector('[role="group"]');
+          group.hidden = exp;
+        } else if (item._loaded && item._childrenData) {
+          item.setAttribute('aria-expanded', 'true');
+          item.classList.add('explorer-tree-open');
+          var childUl = document.createElement('ul');
+          childUl.setAttribute('role', 'group');
+          childUl.className = 'explorer-tree-children';
+          item._childrenData.folders.forEach(function (f2) {
+            var li2 = document.createElement('li');
+            li2.setAttribute('role', 'treeitem');
+            li2.setAttribute('aria-expanded', 'false');
+            li2.setAttribute('data-drive', driveId);
+            li2.setAttribute('data-path', f2.path);
+            li2.className = 'explorer-tree-item';
+            var w2 = document.createElement('span');
+            w2.className = 'explorer-tree-item-inner';
+            var ar2 = document.createElement('span');
+            ar2.className = 'explorer-tree-arrow';
+            ar2.textContent = '\u25B6';
+            var ic2 = document.createElement('span');
+            ic2.className = 'explorer-tree-icon';
+            ic2.textContent = '\u1F4C1';
+            var nm2 = document.createElement('span');
+            nm2.className = 'explorer-tree-name';
+            nm2.textContent = f2.name;
+            w2.appendChild(ar2);
+            w2.appendChild(ic2);
+            w2.appendChild(nm2);
+            li2.appendChild(w2);
+            li2._loaded = false;
+            bindFolderClick(li2, driveId, f2.path);
+            childUl.appendChild(li2);
+          });
+          item.appendChild(childUl);
+        } else if (!item._loaded) {
+          fetchJson('/api/explorer/tree/children?drive_id=' + encodeURIComponent(driveId) + '&path=' + encodeURIComponent(f.path))
+            .then(function (data) {
+              item._loaded = true;
+              item._childrenData = data;
+              item.setAttribute('aria-expanded', 'true');
+              item.classList.add('explorer-tree-open');
+              var arrow = item.querySelector('.explorer-tree-arrow');
+              if (arrow) arrow.textContent = '\u25BC';
+              var childUl = document.createElement('ul');
+              childUl.setAttribute('role', 'group');
+              childUl.className = 'explorer-tree-children';
+              (data.folders || []).forEach(function (f2) {
+                var li2 = document.createElement('li');
+                li2.setAttribute('role', 'treeitem');
+                li2.setAttribute('aria-expanded', 'false');
+                li2.setAttribute('data-drive', driveId);
+                li2.setAttribute('data-path', f2.path);
+                li2.className = 'explorer-tree-item';
+                var w2 = document.createElement('span');
+                w2.className = 'explorer-tree-item-inner';
+                var ar2 = document.createElement('span');
+                ar2.className = 'explorer-tree-arrow';
+                ar2.textContent = '\u25B6';
+                var ic2 = document.createElement('span');
+                ic2.className = 'explorer-tree-icon';
+                ic2.textContent = '\u1F4C1';
+                var nm2 = document.createElement('span');
+                nm2.className = 'explorer-tree-name';
+                nm2.textContent = f2.name;
+                w2.appendChild(ar2);
+                w2.appendChild(ic2);
+                w2.appendChild(nm2);
+                li2.appendChild(w2);
+                li2._loaded = false;
+                bindFolderClick(li2, driveId, f2.path);
+                childUl.appendChild(li2);
+              });
+              item.appendChild(childUl);
+            });
+        }
+        selectNode(driveId, f.path);
+      });
+      ul.appendChild(li);
+    });
+  }
+
+  function bindFolderClick(li, driveId, path) {
+    var wrap = li.querySelector('.explorer-tree-item-inner');
+    if (!wrap) return;
+    wrap.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!li._loaded) {
+        fetchJson('/api/explorer/tree/children?drive_id=' + encodeURIComponent(driveId) + '&path=' + encodeURIComponent(path))
+          .then(function (data) {
+            li._loaded = true;
+            li._childrenData = data;
+            li.setAttribute('aria-expanded', 'true');
+            li.classList.add('explorer-tree-open');
+            var arrow = li.querySelector('.explorer-tree-arrow');
+            if (arrow) arrow.textContent = '\u25BC';
+            var childUl = document.createElement('ul');
+            childUl.setAttribute('role', 'group');
+            childUl.className = 'explorer-tree-children';
+            (data.folders || []).forEach(function (f2) {
+              var li2 = document.createElement('li');
+              li2.setAttribute('role', 'treeitem');
+              li2.setAttribute('aria-expanded', 'false');
+              li2.setAttribute('data-drive', driveId);
+              li2.setAttribute('data-path', f2.path);
+              li2.className = 'explorer-tree-item';
+              var w2 = document.createElement('span');
+              w2.className = 'explorer-tree-item-inner';
+              var ar2 = document.createElement('span');
+              ar2.className = 'explorer-tree-arrow';
+              ar2.textContent = '\u25B6';
+              var ic2 = document.createElement('span');
+              ic2.className = 'explorer-tree-icon';
+              ic2.textContent = '\u1F4C1';
+              var nm2 = document.createElement('span');
+              nm2.className = 'explorer-tree-name';
+              nm2.textContent = f2.name;
+              w2.appendChild(ar2);
+              w2.appendChild(ic2);
+              w2.appendChild(nm2);
+              li2.appendChild(w2);
+              li2._loaded = false;
+              bindFolderClick(li2, driveId, f2.path);
+              childUl.appendChild(li2);
+            });
+            li.appendChild(childUl);
+          });
+      } else {
+        var exp = li.getAttribute('aria-expanded') === 'true';
+        li.setAttribute('aria-expanded', !exp);
+        li.classList.toggle('explorer-tree-open', !exp);
+        var group = li.querySelector('[role="group"]');
+        if (group) group.hidden = exp;
+        var arrow = li.querySelector('.explorer-tree-arrow');
+        if (arrow) arrow.textContent = exp ? '\u25B6' : '\u25BC';
+      }
+      selectNode(driveId, path);
+    });
+  }
+
+  function selectNode(driveId, path) {
+    state.selectedDrive = driveId;
+    state.selectedPath = path || '';
+    state.offset = 0;
+    document.querySelectorAll('.explorer-tree-item-inner').forEach(function (el) {
+      el.classList.remove('explorer-tree-selected');
+      var item = el.closest('[role="treeitem"]');
+      if (item && item.getAttribute('data-drive') === driveId && (item.getAttribute('data-path') || '') === (path || '')) {
+        el.classList.add('explorer-tree-selected');
+      }
+    });
+    loadContents();
+  }
+
+  function loadContents() {
+    if (state.selectedDrive == null) return;
+    contentsPlaceholder.hidden = true;
+    contentsArea.hidden = false;
+    contentsLoading.hidden = false;
+    tbody.innerHTML = '';
+    contentsMore.hidden = true;
+    var pathParam = state.selectedPath ? '&path=' + encodeURIComponent(state.selectedPath) : '';
+    fetchJson('/api/explorer/contents?drive_id=' + encodeURIComponent(state.selectedDrive) + pathParam + '&limit=' + state.limit + '&offset=' + state.offset)
+      .then(function (data) {
+        contentsLoading.hidden = true;
+        state.totalFiles = data.total_files || 0;
+        state.hasMore = data.has_more || false;
+        var parts = state.selectedPath ? state.selectedPath.split('/') : [];
+        breadcrumb.textContent = '';
+        var bcDrive = document.createElement('span');
+        bcDrive.className = 'explorer-breadcrumb-item';
+        bcDrive.textContent = state.selectedDrive;
+        bcDrive.addEventListener('click', function () { selectNode(state.selectedDrive, ''); });
+        breadcrumb.appendChild(bcDrive);
+        for (var i = 0; i < parts.length; i++) {
+          var sep = document.createElement('span');
+          sep.className = 'explorer-breadcrumb-sep';
+          sep.textContent = ' \u203A ';
+          breadcrumb.appendChild(sep);
+          var pathSoFar = parts.slice(0, i + 1).join('/');
+          var span = document.createElement('span');
+          span.className = 'explorer-breadcrumb-item';
+          span.textContent = parts[i];
+          span.addEventListener('click', function (p) { return function () { selectNode(state.selectedDrive, p); }; }(pathSoFar));
+          breadcrumb.appendChild(span);
+        }
+        (data.folders || []).forEach(function (f) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td class="explorer-name"><span class="explorer-icon explorer-icon-folder" aria-hidden="true"></span>' + escapeHtml(f.name) + '</td><td>Carpeta</td><td></td><td></td>';
+          tr.querySelector('.explorer-name').addEventListener('click', function () {
+            selectNode(state.selectedDrive, state.selectedPath ? state.selectedPath + '/' + f.name : f.name);
+          });
+          tbody.appendChild(tr);
+        });
+        (data.files || []).forEach(function (file) {
+          var tr = document.createElement('tr');
+          var modStr = (file.modified_utc || '').slice(0, 19).replace('T', ' ');
+          tr.innerHTML = '<td class="explorer-name"><span class="explorer-icon explorer-icon-file" aria-hidden="true"></span>' + escapeHtml(file.name) + '</td><td>' + escapeHtml(file.extension || '') + '</td><td class="bytes">' + formatBytes(file.size_bytes) + '</td><td>' + escapeHtml(modStr) + '</td>';
+          tbody.appendChild(tr);
+        });
+        if (state.hasMore) {
+          contentsMore.hidden = false;
+        }
+      })
+      .catch(function (err) {
+        contentsLoading.hidden = true;
+        tbody.innerHTML = '<tr><td colspan="4">Error: ' + escapeHtml(err.message) + '</td></tr>';
+      });
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    var div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  loadMoreBtn.addEventListener('click', function () {
+    state.offset += state.limit;
+    if (state.selectedDrive == null) return;
+    var pathParam = state.selectedPath ? '&path=' + encodeURIComponent(state.selectedPath) : '';
+    fetchJson('/api/explorer/contents?drive_id=' + encodeURIComponent(state.selectedDrive) + pathParam + '&limit=' + state.limit + '&offset=' + state.offset)
+      .then(function (data) {
+        (data.files || []).forEach(function (file) {
+          var tr = document.createElement('tr');
+          var modStr = (file.modified_utc || '').slice(0, 19).replace('T', ' ');
+          tr.innerHTML = '<td class="explorer-name"><span class="explorer-icon explorer-icon-file"></span>' + escapeHtml(file.name) + '</td><td>' + escapeHtml(file.extension || '') + '</td><td class="bytes">' + formatBytes(file.size_bytes) + '</td><td>' + escapeHtml(modStr) + '</td>';
+          tbody.appendChild(tr);
+        });
+        state.hasMore = data.has_more || false;
+        contentsMore.hidden = !state.hasMore;
+      });
+  });
+
+  fetchJson('/api/explorer/roots')
+    .then(function (data) {
+      treeLoading.hidden = true;
+      var drives = data.drives || [];
+      if (drives.length === 0) {
+        treeEmpty.hidden = false;
+        return;
+      }
+      treeRoot.hidden = false;
+      var rootList = treeRoot.querySelector('ul.explorer-tree-children');
+      rootList.innerHTML = '';
+      drives.forEach(function (d) {
+        var driveId = d.drive_id;
+        var li = document.createElement('li');
+        li.setAttribute('role', 'treeitem');
+        li.setAttribute('aria-expanded', 'false');
+        li.setAttribute('data-drive', driveId);
+        li.setAttribute('data-path', '');
+        li.setAttribute('data-is-drive', '1');
+        li.className = 'explorer-tree-item explorer-tree-drive';
+        var wrap = document.createElement('span');
+        wrap.className = 'explorer-tree-item-inner';
+        var arrow = document.createElement('span');
+        arrow.className = 'explorer-tree-arrow';
+        arrow.textContent = '\u25B6';
+        var icon = document.createElement('span');
+        icon.className = 'explorer-tree-icon';
+        icon.textContent = '\u24B8';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'explorer-tree-name';
+        nameSpan.textContent = driveId;
+        wrap.appendChild(arrow);
+        wrap.appendChild(icon);
+        wrap.appendChild(nameSpan);
+        li.appendChild(wrap);
+        li._loaded = false;
+        wrap.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (!li._loaded) {
+            fetchJson('/api/explorer/tree/children?drive_id=' + encodeURIComponent(driveId) + '&path=')
+              .then(function (childrenData) {
+                li._loaded = true;
+                li._childrenData = childrenData;
+                li.setAttribute('aria-expanded', 'true');
+                li.classList.add('explorer-tree-open');
+                var arrowEl = li.querySelector('.explorer-tree-arrow');
+                if (arrowEl) arrowEl.textContent = '\u25BC';
+                addTreeNode(li, driveId, '', true, childrenData);
+              });
+          } else {
+            var exp = li.getAttribute('aria-expanded') === 'true';
+            li.setAttribute('aria-expanded', !exp);
+            li.classList.toggle('explorer-tree-open', !exp);
+            var group = li.querySelector('[role="group"]');
+            if (group) group.hidden = exp;
+            var arrowEl = li.querySelector('.explorer-tree-arrow');
+            if (arrowEl) arrowEl.textContent = exp ? '\u25B6' : '\u25BC';
+          }
+          selectNode(driveId, '');
+        });
+        rootList.appendChild(li);
+      });
+    })
+    .catch(function (err) {
+      treeLoading.hidden = true;
+      treeEmpty.hidden = false;
+      treeEmpty.textContent = 'Error: ' + err.message;
+    });
+})();
+</script>
+{% endblock %}

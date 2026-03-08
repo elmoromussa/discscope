@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Duplicats — DiscScope{% endblock %}
+{% block content %}
+<h1>Duplicats</h1>
+<p class="page-description">
+  {% if type == "folders" %}
+  Carpetes amb el mateix {% if mode == "name-size" %}camí i mida{% else %}camí{% endif %} en més d'un disc.
+  {% else %}
+  Fitxers amb el mateix {% if mode == "name-size" %}nom i mida{% else %}nom{% endif %} en més d'un disc.
+  {% endif %}
+  Configureu les opcions i premeu «Mostra duplicats».
+</p>
+
+<div class="card advanced-search">
+  <form method="get" action="{{ request.url_for('duplicates_route') }}" class="search-form-grid">
+    <input type="hidden" name="submitted" value="1">
+    <fieldset class="advanced-search-fieldset">
+      <legend>Tipus de duplicats</legend>
+      <div class="form-group">
+        <label for="type">Tipus</label>
+        <select name="type" id="type">
+          <option value="files" {% if type == "files" %}selected{% endif %}>Duplicats de fitxers</option>
+          <option value="folders" {% if type == "folders" %}selected{% endif %}>Duplicats de carpetes</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="mode">Criteri</label>
+        <select name="mode" id="mode">
+          <option value="name" {% if mode == "name" %}selected{% endif %}>Per nom / camí</option>
+          <option value="name-size" {% if mode == "name-size" %}selected{% endif %}>Per nom / camí + mida</option>
+        </select>
+      </div>
+    </fieldset>
+    <details class="advanced-search-details">
+      <summary>Opcions avançades</summary>
+      <fieldset class="advanced-search-fieldset">
+        <legend>Filtres comuns</legend>
+        <div class="form-group">
+          <span class="label">Discs (opcional)</span>
+          <p class="form-hint">Marqueu els discs on cercar; si no en marqueu cap, es cercarà en tots.</p>
+          <div class="drive-checkboxes" role="group" aria-label="Selecció de discs">
+            {% for did in drive_ids %}
+            <label class="checkbox-label">
+              <input type="checkbox" name="drive_ids" value="{{ did }}" {% if did in selected_drive_ids %}checked{% endif %}>
+              {{ did }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="exclude">Paraules o frases a excloure</label>
+          <textarea name="exclude" id="exclude" placeholder="Separades per comes o salts de línia" rows="2">{{ exclude }}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="include">Paraules o frases a incloure</label>
+          <textarea name="include" id="include" placeholder="Separades per comes o salts de línia" rows="2">{{ include }}</textarea>
+        </div>
+      </fieldset>
+      <fieldset id="duplicates-options-files" class="advanced-search-fieldset duplicates-options-files" aria-hidden="false">
+        <legend>Opcions per fitxers</legend>
+        <div class="form-group">
+          <label for="extension">Extensió (fitxers)</label>
+          <input type="text" name="extension" id="extension" value="{{ extension }}" placeholder="ex: txt, pdf, doc (separades per comes, opcional)">
+        </div>
+        <div class="form-group">
+          <label for="min_size_mb">Mida mínima (MB, fitxers)</label>
+          <input type="number" name="min_size_mb" id="min_size_mb" value="{{ min_size_mb }}" placeholder="Opcional" min="0" step="0.1">
+        </div>
+      </fieldset>
+      <fieldset id="duplicates-options-folders" class="advanced-search-fieldset duplicates-options-folders" aria-hidden="false">
+        <legend>Opcions per carpetes</legend>
+        <div class="form-group">
+          <label for="max_depth">Profunditat màxima (carpetes)</label>
+          <input type="number" name="max_depth" id="max_depth" value="{{ max_depth }}" placeholder="Opcional" min="0" step="1">
+        </div>
+        <div class="form-group">
+          <label for="min_size_folders_mb">Mida mínima (MB, carpetes)</label>
+          <input type="number" name="min_size_folders_mb" id="min_size_folders_mb" value="{{ min_size_folders_mb }}" placeholder="Opcional" min="0" step="0.1">
+        </div>
+      </fieldset>
+    </details>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Mostra duplicats</button>
+    </div>
+  </form>
+</div>
+
+{% if submitted %}
+<p>Total: <strong>{{ total }}</strong> grups. Pàgina {{ page }} de {{ total_pages }}.</p>
+<p class="sort-links">Ordenar per: {% for col in sort_columns_duplicates %}<a href="{{ sort_urls_duplicates[col] }}" class="sortable{% if sort_dup == col %} sort-active{% endif %}">{{ sort_labels_duplicates[col] }}{% if sort_dup == col %} <span class="sort-arrow" aria-hidden="true">{% if dir_dup == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+
+{% if groups %}
+{% for g in groups %}
+<div class="duplicate-group">
+  <details>
+    <summary>
+      <span class="section-icon" aria-hidden="true">&#x1F4CB;</span>
+      {% if type == "files" %}
+        {% if mode == "name-size" %}
+        {{ g.name }} — {{ g.size_bytes | format_bytes }} — {{ g.ndrives }} discs, {{ g.total_files }} fitxers
+        {% else %}
+        {{ g.name }} — {{ g.ndrives }} discs, {{ g.total_files }} fitxers
+        {% endif %}
+      {% else %}
+        {% if mode == "name-size" %}
+        {{ g.folder_path }} — {{ g.total_bytes | format_bytes }} — {{ g.ndrives }} discs, {{ g.total_folders }} carpetes
+        {% else %}
+        {{ g.folder_path }} — {{ g.ndrives }} discs, {{ g.total_folders }} carpetes
+        {% endif %}
+      {% endif %}
+    </summary>
+    <div class="files">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              {% if type == "files" %}
+              <th>Disc</th>
+              <th>Ruta</th>
+              <th>Mida</th>
+              <th>Modificat</th>
+              {% else %}
+              <th>Disc</th>
+              <th>Carpeta</th>
+              <th>Profunditat</th>
+              <th>Fitxers</th>
+              <th>Mida</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% if type == "files" %}
+            {% for f in g.files %}
+            <tr>
+              <td>{{ f.drive_id }}</td>
+              <td class="mono">{{ f.relative_path }}</td>
+              <td class="bytes">{{ f.size_bytes | format_bytes }}</td>
+              <td>{{ f.modified_utc or "" }}</td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            {% for e in g.entries %}
+            <tr>
+              <td>{{ e.drive_id }}</td>
+              <td class="mono">{{ e.folder_path }}</td>
+              <td>{{ e.folder_depth if e.folder_depth is not none else "" }}</td>
+              <td>{{ e.files_count | default(0) | int }}</td>
+              <td class="bytes">{{ e.total_bytes | default(0) | int | format_bytes }}</td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      {% if type == "files" and g.total_files > g.files | length %}
+      <p><em>Mostrats {{ g.files | length }} de {{ g.total_files }} fitxers.</em></p>
+      {% endif %}
+      {% if type == "folders" and g.total_folders > g.entries | length %}
+      <p><em>Mostrats {{ g.entries | length }} de {{ g.total_folders }} carpetes.</em></p>
+      {% endif %}
+    </div>
+  </details>
+</div>
+{% endfor %}
+{% include "pagination.html" %}
+{% else %}
+<div class="empty-state">No s'han trobat grups de duplicats.</div>
+{% endif %}
+{% endif %}
+<script>
+(function () {
+  var typeSelect = document.getElementById('type');
+  var optionsFiles = document.getElementById('duplicates-options-files');
+  var optionsFolders = document.getElementById('duplicates-options-folders');
+  if (!typeSelect || !optionsFiles || !optionsFolders) return;
+  function updateVisibility() {
+    var isFiles = typeSelect.value === 'files';
+    optionsFiles.style.display = isFiles ? '' : 'none';
+    optionsFiles.setAttribute('aria-hidden', isFiles ? 'false' : 'true');
+    optionsFolders.style.display = isFiles ? 'none' : '';
+    optionsFolders.setAttribute('aria-hidden', isFiles ? 'true' : 'false');
+  }
+  typeSelect.addEventListener('change', updateVisibility);
+  updateVisibility();
+})();
+</script>
+{% endblock %}

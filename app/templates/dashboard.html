@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Inici — DiscScope{% endblock %}
+{% block content %}
+<h1>DiscScope</h1>
+<p class="page-description">Consulteu l'inventari de discs, cerqueu fitxers per nom o ruta, reviseu duplicats i exploreu extensions i carpetes per mida.</p>
+
+<section class="quick-actions" aria-label="Accions ràpides">
+  <a href="{{ request.url_for('search_route') }}" class="quick-action-card">Cercar</a>
+  <a href="{{ request.url_for('duplicates_route') }}" class="quick-action-card">Duplicats</a>
+  <a href="{{ request.url_for('extensions_route') }}" class="quick-action-card">Extensions</a>
+  <a href="{{ request.url_for('folders_route') }}" class="quick-action-card">Carpetes</a>
+</section>
+
+<h2><span class="section-icon" aria-hidden="true">&#x1F4BE;</span>Resum per disc</h2>
+<div class="stats-grid">
+  {% for d in drives %}
+  <div class="stat">
+    <strong><span class="section-icon" aria-hidden="true">&#x1F4BE;</span>{{ d.drive_id }}</strong>
+    <span>{{ d.files | default(0) | int }} fitxers</span><br>
+    <span class="bytes">{{ d.total_bytes | default(0) | int | format_bytes }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<h2><span class="section-icon" aria-hidden="true">&#x1F4C4;</span>Top extensions (tots els discs)</h2>
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Extensió</th>
+        <th>Fitxers</th>
+        <th>Mida</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in top_extensions %}
+      <tr>
+        <td><code>{{ e.extension or "(sense)" }}</code></td>
+        <td>{{ e.total_count | default(0) | int }}</td>
+        <td class="bytes">{{ e.total_bytes | default(0) | int | format_bytes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2><span class="section-icon" aria-hidden="true">&#x1F4C1;</span>Top carpetes per mida</h2>
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Disc</th>
+        <th>Carpeta</th>
+        <th>Fitxers</th>
+        <th>Mida</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in top_folders %}
+      <tr>
+        <td>{{ f.drive_id }}</td>
+        <td class="mono">{{ f.folder_path }}</td>
+        <td>{{ f.files_count | default(0) | int }}</td>
+        <td class="bytes">{{ f.total_bytes | default(0) | int | format_bytes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}Discs — DiscScope{% endblock %}
+{% block content %}
+<h1>Gestió de discs</h1>
+
+{% if msg_ok %}
+<p class="msg-ok" role="alert">{{ msg_ok }}</p>
+{% endif %}
+{% if msg_error %}
+<p class="msg-error" role="alert">{{ msg_error }}</p>
+{% endif %}
+
+{% if not drives %}
+<p class="page-description">Encara no hi ha base de dades (o cap disc importat). Auditeu un disc o una carpeta per crear-la i incorporar-lo.</p>
+{% endif %}
+
+<section class="discs-form-section" aria-label="Auditar i incorporar">
+  <h2>Auditar disc i incorporar a la base de dades</h2>
+  <p>Seleccioneu la carpeta o unitat a auditar amb el botó de sota; s'obrirà una finestra d'exploració on podeu navegar i triar la carpeta. En discs grans (5–8 TB) el procés pot durar diversos minuts; no tanqueu la pàgina.</p>
+  <form method="post" action="/discs" class="discs-form">
+    <div class="form-group">
+      <label for="root_path" class="form-label">Carpeta o disc a auditar</label>
+      <div class="root-path-row">
+        <div class="root-path-input-wrap">
+          <input type="text" id="root_path" name="root_path" class="form-control" required
+                 placeholder="Trieu una carpeta amb el botó →" style="max-width: 100%; width: 100%;">
+          <button type="button" id="btn_select_drive" class="btn btn-primary btn-select-drive" aria-label="Obrir explorador per seleccionar carpeta o unitat">Seleccionar unitat o carpeta</button>
+        </div>
+      </div>
+      <p class="root-path-hint">Feu clic a <strong>Seleccionar unitat o carpeta</strong> per obrir l'explorador; trieu la unitat i navegueu fins a la carpeta desitjada i premeu «Seleccionar aquesta carpeta». També podeu enganxar una ruta al camp si ho preferiu.</p>
+    </div>
+    <div class="form-group">
+      <label for="drive_id" class="form-label">Identificador del disc (drive_id)</label>
+      <input type="text" id="drive_id" name="drive_id" class="form-control" required
+             placeholder="EXT-A, HDD1, ..." style="max-width: 20em;">
+    </div>
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="replace" value="on">
+        Substituir dades d'aquest disc (actualitzar)
+      </label>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Auditar i incorporar</button>
+    </div>
+  </form>
+</section>
+
+{% if drives %}
+<section class="discs-list" aria-label="Discs a la base de dades">
+  <h2>Discs a la base de dades</h2>
+  <div class="stats-grid stats-grid-discs">
+    {% for d in drives %}
+    <div class="stat stat-disc">
+      <strong>{{ d.drive_id }}</strong>
+      <span>{{ d.files | default(0) | int }} fitxers</span><br>
+      <span class="bytes">{{ d.total_bytes | default(0) | int | format_bytes }}</span>
+      <div class="stat-disc-actions">
+        <button type="button" class="btn btn-update" data-drive-id="{{ d.drive_id }}" aria-label="Actualitzar unitat {{ d.drive_id }}">Actualitzar</button>
+        <form method="post" action="{{ request.url_for('discs_delete') }}" class="stat-disc-delete-form" onsubmit="return confirm('Eliminar la unitat de la base de dades? Aquesta acció no es pot desfer.');">
+          <input type="hidden" name="drive_id" value="{{ d.drive_id }}">
+          <button type="submit" class="btn btn-delete" aria-label="Eliminar unitat {{ d.drive_id }}">Eliminar</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+<!-- Formulari ocult per actualitzar: s'omple el root_path des del modal i s'envia -->
+<form id="form_update_disc" method="post" action="{{ request.url_for('discs_post') }}" style="display: none;">
+  <input type="hidden" name="drive_id" id="update_drive_id">
+  <input type="hidden" name="replace" value="on">
+  <input type="hidden" name="root_path" id="update_root_path">
+</form>
+{% endif %}
+<!-- Modal: selecció d'unitat -->
+<div id="drive_modal" class="drive-modal" role="dialog" aria-labelledby="drive_modal_title" aria-modal="true" hidden>
+  <div class="drive-modal-overlay" id="drive_modal_overlay"></div>
+  <div class="drive-modal-content drive-modal-content-explorer">
+    <h2 id="drive_modal_title" class="drive-modal-title">Seleccioneu la unitat o carpeta a auditar</h2>
+    <p id="drive_modal_hint" class="drive-modal-hint">Trieu una unitat i navegueu per les carpetes com a l'explorador de fitxers. La ruta s’afegirà al camp del formulari.</p>
+    <div class="drive-modal-toolbar">
+      <button type="button" class="btn btn-secondary drive-modal-btn-back" id="drive_modal_back" title="Enrere" disabled>← Enrere</button>
+      <button type="button" class="btn btn-secondary drive-modal-btn-up" id="drive_modal_up" title="Carpeta superior" disabled>↑ Pujar</button>
+      <div class="drive-modal-address" id="drive_modal_breadcrumb" role="navigation" aria-label="Ruta actual"></div>
+    </div>
+    <div class="drive-modal-list-wrap">
+      <div id="drive_modal_list" class="drive-modal-list drive-modal-list-explorer"></div>
+      <p id="drive_modal_loading" class="drive-modal-loading">Carregant…</p>
+      <p id="drive_modal_error" class="drive-modal-error" hidden></p>
+    </div>
+    <div class="drive-modal-actions">
+      <button type="button" class="btn btn-primary" id="drive_modal_select_here">Seleccionar aquesta carpeta</button>
+      <button type="button" class="btn btn-secondary" id="drive_modal_cancel">Cancel·lar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var input = document.getElementById('root_path');
+  var btnOpen = document.getElementById('btn_select_drive');
+  var modal = document.getElementById('drive_modal');
+  var overlay = document.getElementById('drive_modal_overlay');
+  var listEl = document.getElementById('drive_modal_list');
+  var breadcrumbEl = document.getElementById('drive_modal_breadcrumb');
+  var loadingEl = document.getElementById('drive_modal_loading');
+  var errorEl = document.getElementById('drive_modal_error');
+  var btnCancel = document.getElementById('drive_modal_cancel');
+  var btnSelectHere = document.getElementById('drive_modal_select_here');
+
+  var currentPath = '';
+  var isAtDrives = true;
+  var pathHistory = [];
+  var modalMode = 'add';
+  var modalTitleEl = document.getElementById('drive_modal_title');
+  var modalHintEl = document.getElementById('drive_modal_hint');
+  var formUpdate = document.getElementById('form_update_disc');
+  var updateDriveIdInput = formUpdate ? document.getElementById('update_drive_id') : null;
+  var updateRootPathInput = formUpdate ? document.getElementById('update_root_path') : null;
+  var modalTitleAdd = modalTitleEl ? modalTitleEl.textContent : '';
+  var modalHintAdd = modalHintEl ? modalHintEl.textContent : '';
+
+  var btnBack = document.getElementById('drive_modal_back');
+  var btnUp = document.getElementById('drive_modal_up');
+
+  function pathSegments(path) {
+    if (!path || !path.trim()) return [];
+    var normalized = path.replace(/\/+/g, '\\').split('\\').filter(Boolean);
+    if (path.indexOf('\\') >= 0 && path.length >= 2 && path[1] === ':') {
+      normalized[0] = (path[0] + ':').toUpperCase();
+    }
+    return normalized;
+  }
+
+  function pathToSegmentPath(segments, index) {
+    if (index < 0 || index >= segments.length) return '';
+    var sep = '\\';
+    var s = segments[index];
+    if (index === 0 && s.length <= 2) return s + sep;
+    return segments.slice(0, index + 1).join(sep) + sep;
+  }
+
+  function buildBreadcrumb(path, isRoot) {
+    breadcrumbEl.innerHTML = '';
+    if (isRoot) {
+      var span = document.createElement('span');
+      span.className = 'drive-modal-address-item drive-modal-address-current';
+      span.textContent = 'Equip';
+      breadcrumbEl.appendChild(span);
+      return;
+    }
+    var segs = pathSegments(path);
+    for (var i = 0; i < segs.length; i++) {
+      if (i > 0) {
+        var sep = document.createElement('span');
+        sep.className = 'drive-modal-address-sep';
+        sep.textContent = ' › ';
+        breadcrumbEl.appendChild(sep);
+      }
+      var segPath = pathToSegmentPath(segs, i);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'drive-modal-address-item';
+      btn.textContent = segs[i];
+      btn.setAttribute('data-path', segPath);
+      (function (p) {
+        btn.addEventListener('click', function () { navigateTo(p); });
+      })(segPath);
+      breadcrumbEl.appendChild(btn);
+    }
+  }
+
+  function updateToolbar() {
+    if (btnBack) btnBack.disabled = pathHistory.length === 0;
+    if (btnUp) btnUp.disabled = isAtDrives || !currentPath;
+  }
+
+  function showLoading(show) {
+    loadingEl.hidden = !show;
+    if (show) {
+      listEl.classList.add('drive-modal-list-loading');
+      errorEl.hidden = true;
+    } else {
+      listEl.classList.remove('drive-modal-list-loading');
+    }
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.hidden = false;
+  }
+
+  function escapeHtml(s) {
+    var div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function renderDrives() {
+    pathHistory = [];
+    isAtDrives = true;
+    currentPath = '';
+    listEl.innerHTML = '';
+    buildBreadcrumb('', true);
+    updateToolbar();
+    if (btnSelectHere) btnSelectHere.style.display = 'none';
+    showLoading(true);
+    fetch('/api/drives')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        showLoading(false);
+        var drives = data.drives || [];
+        if (drives.length === 0) {
+          drives = ['C:\\', 'D:\\', 'E:\\', 'F:\\', 'G:\\', 'H:\\'];
+        }
+        drives.forEach(function (path) {
+          var row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'btn drive-modal-row drive-modal-drive';
+          row.setAttribute('data-path', path);
+          row.innerHTML = '<span class="drive-modal-icon drive-modal-icon-drive" aria-hidden="true"></span><span class="drive-modal-name">' + escapeHtml(path) + '</span>';
+          row.addEventListener('click', function () { navigateTo(path); });
+          row.addEventListener('dblclick', function () { navigateTo(path); });
+          listEl.appendChild(row);
+        });
+      })
+      .catch(function () {
+        showLoading(false);
+        var drives = ['C:\\', 'D:\\', 'E:\\', 'F:\\', 'G:\\', 'H:\\'];
+        drives.forEach(function (path) {
+          var row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'btn drive-modal-row drive-modal-drive';
+          row.setAttribute('data-path', path);
+          row.innerHTML = '<span class="drive-modal-icon drive-modal-icon-drive" aria-hidden="true"></span><span class="drive-modal-name">' + escapeHtml(path) + '</span>';
+          row.addEventListener('click', function () { navigateTo(path); });
+          row.addEventListener('dblclick', function () { navigateTo(path); });
+          listEl.appendChild(row);
+        });
+      });
+  }
+
+  function navigateTo(path) {
+    if (isAtDrives) pathHistory.push('');
+    else if (currentPath) pathHistory.push(currentPath);
+    currentPath = path;
+    isAtDrives = false;
+    if (btnSelectHere) btnSelectHere.style.display = '';
+    listEl.innerHTML = '';
+    buildBreadcrumb(path, false);
+    updateToolbar();
+    showLoading(true);
+    fetch('/api/browse?path=' + encodeURIComponent(path))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        showLoading(false);
+        if (data.error) {
+          showError(data.error);
+          return;
+        }
+        errorEl.hidden = true;
+        currentPath = data.path || path;
+        if (data.parent !== undefined && data.parent !== null) {
+          var parentRow = document.createElement('button');
+          parentRow.type = 'button';
+          parentRow.className = 'btn drive-modal-row drive-modal-folder drive-modal-up';
+          parentRow.setAttribute('data-path', data.parent);
+          parentRow.innerHTML = '<span class="drive-modal-icon drive-modal-icon-folder" aria-hidden="true"></span><span class="drive-modal-name">.. (carpeta superior)</span>';
+          parentRow.addEventListener('click', function () { navigateTo(data.parent); });
+          listEl.appendChild(parentRow);
+        }
+        (data.folders || []).forEach(function (name) {
+          var sep = currentPath.indexOf('\\') >= 0 ? '\\' : '/';
+          var fullPath = (currentPath.replace(/[\\/]+$/, '') + sep + name);
+          var row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'btn drive-modal-row drive-modal-folder';
+          row.setAttribute('data-path', fullPath);
+          row.innerHTML = '<span class="drive-modal-icon drive-modal-icon-folder" aria-hidden="true"></span><span class="drive-modal-name">' + escapeHtml(name) + '</span>';
+          row.addEventListener('click', function () { navigateTo(fullPath); });
+          row.addEventListener('dblclick', function () { navigateTo(fullPath); });
+          listEl.appendChild(row);
+        });
+      })
+      .catch(function () {
+        showLoading(false);
+        showError('No s\'han pogut carregar el contingut de la carpeta.');
+      });
+  }
+
+  function openModal(mode) {
+    modalMode = mode || 'add';
+    if (modalTitleEl) modalTitleEl.textContent = modalTitleAdd;
+    if (modalHintEl) modalHintEl.textContent = modalHintAdd;
+    if (modalMode === 'update' && updateDriveIdInput && updateDriveIdInput.value) {
+      if (modalTitleEl) modalTitleEl.textContent = 'Seleccioneu la unitat o carpeta per actualitzar «' + updateDriveIdInput.value + '»';
+      if (modalHintEl) modalHintEl.textContent = 'Trieu la carpeta arrel del disc que voleu re-auditar. Les dades existents d\'aquesta unitat es substituiran.';
+    }
+    modal.hidden = false;
+    currentPath = '';
+    isAtDrives = true;
+    errorEl.hidden = true;
+    renderDrives();
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    modalMode = 'add';
+    if (updateDriveIdInput) updateDriveIdInput.value = '';
+    if (updateRootPathInput) updateRootPathInput.value = '';
+    if (modalTitleEl) modalTitleEl.textContent = modalTitleAdd;
+    if (modalHintEl) modalHintEl.textContent = modalHintAdd;
+  }
+
+  if (btnSelectHere) {
+    btnSelectHere.addEventListener('click', function () {
+      var pathToSet = isAtDrives ? currentPath : (currentPath || '').replace(/[\\/]+$/, '') || currentPath;
+      if (!pathToSet && isAtDrives) return;
+      if (modalMode === 'update' && formUpdate && updateRootPathInput && updateDriveIdInput && updateDriveIdInput.value) {
+        var sep = pathToSet.indexOf('\\') >= 0 ? '\\' : '/';
+        updateRootPathInput.value = pathToSet + (pathToSet.endsWith(sep) ? '' : sep);
+        formUpdate.submit();
+        return;
+      }
+      if (pathToSet && input) {
+        var sep = pathToSet.indexOf('\\') >= 0 ? '\\' : '/';
+        input.value = pathToSet + (pathToSet.endsWith(sep) ? '' : sep);
+        input.focus();
+      }
+      closeModal();
+    });
+  }
+
+  if (btnBack) {
+    btnBack.addEventListener('click', function () {
+      if (pathHistory.length === 0) return;
+      var prev = pathHistory.pop();
+      currentPath = prev;
+      isAtDrives = false;
+      if (pathHistory.length === 0 && prev === '') { openModal(); return; }
+      listEl.innerHTML = '';
+      buildBreadcrumb(prev, false);
+      updateToolbar();
+      if (btnSelectHere) btnSelectHere.style.display = '';
+      showLoading(true);
+      fetch('/api/browse?path=' + encodeURIComponent(prev))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          showLoading(false);
+          if (data.error) { showError(data.error); return; }
+          errorEl.hidden = true;
+          currentPath = data.path || prev;
+          if (data.parent !== undefined && data.parent !== null) {
+            var parentRow = document.createElement('button');
+            parentRow.type = 'button';
+            parentRow.className = 'btn drive-modal-row drive-modal-folder drive-modal-up';
+            parentRow.setAttribute('data-path', data.parent);
+            parentRow.innerHTML = '<span class="drive-modal-icon drive-modal-icon-folder"></span><span class="drive-modal-name">.. (carpeta superior)</span>';
+            parentRow.addEventListener('click', function () { navigateTo(data.parent); });
+            listEl.appendChild(parentRow);
+          }
+          (data.folders || []).forEach(function (name) {
+            var sep = (currentPath.indexOf('\\') >= 0 ? '\\' : '/');
+            var fullPath = (currentPath.replace(/[\\/]+$/, '') + sep + name);
+            var row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'btn drive-modal-row drive-modal-folder';
+            row.setAttribute('data-path', fullPath);
+            row.innerHTML = '<span class="drive-modal-icon drive-modal-icon-folder"></span><span class="drive-modal-name">' + escapeHtml(name) + '</span>';
+            row.addEventListener('click', function () { navigateTo(fullPath); });
+            row.addEventListener('dblclick', function () { navigateTo(fullPath); });
+            listEl.appendChild(row);
+          });
+        })
+        .catch(function () { showLoading(false); showError('No s\'han pogut carregar el contingut.'); });
+    });
+  }
+  if (btnUp) {
+    btnUp.addEventListener('click', function () {
+      if (isAtDrives || !currentPath) return;
+      var sep = currentPath.indexOf('\\') >= 0 ? '\\' : '/';
+      var normalized = currentPath.replace(/[\\/]+$/, '');
+      var idx = normalized.lastIndexOf(sep);
+      var parent = (idx <= 0) ? null : normalized.slice(0, idx);
+      if (parent === null || parent.length <= 2) {
+        openModal();
+        return;
+      }
+      navigateTo(parent + sep);
+    });
+  }
+  if (btnOpen) btnOpen.addEventListener('click', function () { openModal('add'); });
+  if (overlay) overlay.addEventListener('click', closeModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  modal.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
+  });
+  document.querySelectorAll('.btn-update').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var did = this.getAttribute('data-drive-id');
+      if (updateDriveIdInput && did) {
+        updateDriveIdInput.value = did;
+        if (updateRootPathInput) updateRootPathInput.value = '';
+        openModal('update');
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

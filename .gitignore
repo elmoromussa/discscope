@@ -1,0 +1,37 @@
+# Base de dades i dades locals (no pujar a GitHub)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Entorn virtual
+venv/
+.venv/
+env/
+
+# Variables d'entorn (secrets)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

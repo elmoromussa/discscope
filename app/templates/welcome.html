@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Benvinguda — DiscScope{% endblock %}
+{% block content %}
+<h1>DiscScope</h1>
+<p class="page-description">Encara no hi ha cap base de dades d'inventari. Podeu crear-la auditant un disc o una carpeta des de la secció <strong>Discs</strong>.</p>
+<section class="quick-actions" aria-label="Accions">
+  <a href="{{ request.url_for('discs_route') }}" class="quick-action-card">Anar a Discs</a>
+</section>
+<p>Des de <strong>Discs</strong> podeu auditar una carpeta o un disc (per exemple <code>D:\</code> o <code>E:\backups</code>), assignar-li un identificador (drive_id) i incorporar-lo a la base de dades. Si la base de dades no existeix, es crearà automàticament.</p>
+{% endblock %}

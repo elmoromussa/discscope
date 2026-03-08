@@ -1,0 +1,15 @@
+{% if total_pages and total_pages > 1 %}
+<div class="pagination">
+  {% if prev_url %}
+  <a href="{{ prev_url }}">Anterior</a>
+  {% else %}
+  <span class="disabled">Anterior</span>
+  {% endif %}
+  <span class="current">Pàgina {{ page }} de {{ total_pages }}</span>
+  {% if next_url %}
+  <a href="{{ next_url }}">Següent</a>
+  {% else %}
+  <span class="disabled">Següent</span>
+  {% endif %}
+</div>
+{% endif %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Carpetes — DiscScope{% endblock %}
+{% block content %}
+<h1>Carpetes</h1>
+<p class="page-description">Llista de carpetes per disc amb profunditat, nombre de fitxers i mida. Filtrar per disc opcional.</p>
+
+<div class="card">
+  <form method="get" action="{{ request.url_for('folders_route') }}">
+    <input type="hidden" name="submitted" value="1">
+    <div class="form-group">
+      <span class="label">Discs (opcional)</span>
+      <p class="form-hint">Marqueu els discs a incloure; si no en marqueu cap, es mostren tots.</p>
+      <div class="drive-checkboxes" role="group" aria-label="Selecció de discs">
+        {% for did in drive_ids %}
+        <label class="checkbox-label">
+          <input type="checkbox" name="drive_ids" value="{{ did }}" {% if did in selected_drive_ids %}checked{% endif %}>
+          {{ did }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+    </div>
+  </form>
+</div>
+
+{% if submitted %}
+<p><strong>{{ total }}</strong> carpetes. Pàgina {{ page }} de {{ total_pages }}.</p>
+{% endif %}
+
+{% if submitted and rows %}
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th class="sortable"><a href="{{ sort_urls.drive_id }}">Disc</a>{% if sort == 'drive_id' %} <span class="sort-arrow" aria-hidden="true">{% if dir == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</th>
+        <th class="sortable"><a href="{{ sort_urls.folder_path }}">Carpeta</a>{% if sort == 'folder_path' %} <span class="sort-arrow" aria-hidden="true">{% if dir == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</th>
+        <th class="sortable"><a href="{{ sort_urls.folder_depth }}">Profunditat</a>{% if sort == 'folder_depth' %} <span class="sort-arrow" aria-hidden="true">{% if dir == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</th>
+        <th class="sortable"><a href="{{ sort_urls.files_count }}">Fitxers</a>{% if sort == 'files_count' %} <span class="sort-arrow" aria-hidden="true">{% if dir == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</th>
+        <th class="sortable"><a href="{{ sort_urls.total_bytes }}">Mida</a>{% if sort == 'total_bytes' %} <span class="sort-arrow" aria-hidden="true">{% if dir == 'asc' %}&uarr;{% else %}&darr;{% endif %}</span>{% endif %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.drive_id }}</td>
+        <td class="mono">{{ r.folder_path }}</td>
+        <td>{{ r.folder_depth if r.folder_depth is not none else "" }}</td>
+        <td>{{ r.files_count | default(0) | int }}</td>
+        <td class="bytes">{{ r.total_bytes | default(0) | int | format_bytes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "pagination.html" %}
+{% elif submitted %}
+<div class="empty-state">No hi ha dades.</div>
+{% endif %}
+{% if not submitted %}
+<p class="page-description">Configureu el filtre (opcional) i premeu «Filtrar» per veure la llista de carpetes.</p>
+{% endif %}
+{% endblock %}

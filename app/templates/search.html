@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}Cercar — DiscScope{% endblock %}
+{% block content %}
+<h1>Cercar per paraula clau</h1>
+<p class="page-description">Cerca en fitxers i/o carpetes per paraula clau en el nom o la ruta. Configureu els filtres i premeu «Cercar».</p>
+<details class="search-help">
+  <summary>Com cercar / Exemples</summary>
+  <p>La cerca coincideix el text en el nom del fitxer/carpeta o en la ruta (coincidència parcial). Trieu «Camp de la cerca»: Nom del fitxer/carpeta o Ruta. Exemples: «informe» troba «informe.pdf» o «/docs/informe/». Podeu usar <strong>placeholders</strong>: <code>*</code> equival a qualsevol seqüència de caràcters i <code>?</code> a un sol caràcter (ex: <code>informe*.pdf</code>, <code>foto?.jpg</code>). Podeu restringir per extensió (ex: txt, pdf) a les opcions per fitxers i excloure paraules o frases a la caixa inferior.</p>
+</details>
+
+<div class="card advanced-search">
+  <form method="get" action="{{ request.url_for('search_route') }}" class="search-form-grid">
+    <fieldset class="advanced-search-fieldset">
+      <legend>Cerca bàsica</legend>
+      <div class="form-group">
+        <label for="q">Paraules clau</label>
+        <input type="text" name="q" id="q" value="{{ q }}" placeholder="Nom o ruta" required>
+      </div>
+      <div class="form-group">
+        <label for="scope">Camp de la cerca</label>
+        <select name="scope" id="scope">
+          <option value="name" {% if scope == "name" or scope == "both" %}selected{% endif %}>Nom del fitxer/carpeta</option>
+          <option value="path" {% if scope == "path" %}selected{% endif %}>Ruta</option>
+        </select>
+      </div>
+      <div class="form-group form-group-search-type">
+        <label for="search_type">Cercar en</label>
+        <select name="search_type" id="search_type">
+          <option value="files" {% if search_type == "files" %}selected{% endif %}>Només fitxers</option>
+          <option value="folders" {% if search_type == "folders" %}selected{% endif %}>Només carpetes</option>
+          <option value="both" {% if search_type == "both" %}selected{% endif %}>Fitxers i carpetes</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="exclude">Paraules o frases a excloure</label>
+        <textarea name="exclude" id="exclude" placeholder="Separades per comes o salts de línia" rows="2">{{ exclude }}</textarea>
+      </div>
+      <div class="form-group">
+        <span class="label">Discs (opcional)</span>
+        <p class="form-hint">Marqueu els discs on cercar; si no en marqueu cap, es cercarà en tots.</p>
+        <div class="drive-checkboxes" role="group" aria-label="Selecció de discs">
+          {% for did in drive_ids %}
+          <label class="checkbox-label">
+            <input type="checkbox" name="drive_ids" value="{{ did }}" {% if did in selected_drive_ids %}checked{% endif %}>
+            {{ did }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </fieldset>
+    <details class="advanced-search-details">
+      <summary>Opcions avançades</summary>
+      <fieldset id="search-options-files" class="advanced-search-fieldset search-options-files" aria-hidden="false">
+        <legend>Opcions per fitxers</legend>
+        <div class="form-group">
+          <label for="extension">Extensió</label>
+          <input type="text" name="extension" id="extension" value="{{ extension }}" placeholder="ex: txt, pdf, doc (separades per comes, opcional)">
+        </div>
+        <div class="form-group">
+          <label for="min_size_mb">Mida mínima (MB)</label>
+          <input type="number" name="min_size_mb" id="min_size_mb" value="{{ min_size_mb }}" placeholder="Opcional" min="0" step="0.1">
+        </div>
+      </fieldset>
+      <fieldset id="search-options-folders" class="advanced-search-fieldset search-options-folders" aria-hidden="false">
+        <legend>Opcions per carpetes</legend>
+        <div class="form-group">
+          <label for="max_depth">Profunditat màxima</label>
+          <input type="number" name="max_depth" id="max_depth" value="{{ max_depth }}" placeholder="Opcional" min="0" step="1">
+        </div>
+        <div class="form-group">
+          <label for="min_size_folders_mb">Mida mínima (MB)</label>
+          <input type="number" name="min_size_folders_mb" id="min_size_folders_mb" value="{{ min_size_folders_mb }}" placeholder="Opcional" min="0" step="0.1">
+        </div>
+      </fieldset>
+    </details>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Cercar</button>
+    </div>
+  </form>
+</div>
+
+{% if q %}
+  {% if search_type in ("files", "both") %}
+    <h2>Fitxers</h2>
+    <p><strong>{{ total_files }}</strong> coincidència(s). Pàgina {{ page_files }} de {{ total_pages_files }}.</p>
+    {% if rows_files %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" {% if sort_f == "drive_id" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.drive_id }}">Disc{% if sort_f == "drive_id" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_f == "relative_path" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.relative_path }}">Ruta{% if sort_f == "relative_path" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_f == "name" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.name }}">Nom{% if sort_f == "name" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_f == "extension" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.extension }}">Ext.{% if sort_f == "extension" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_f == "size_bytes" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.size_bytes }}">Mida{% if sort_f == "size_bytes" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_f == "modified_utc" %}aria-sort="{% if dir_f == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_files.modified_utc }}">Modificat{% if sort_f == "modified_utc" %} <span class="sort-arrow" aria-hidden="true">{% if dir_f == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows_files %}
+          <tr>
+            <td>{{ r.drive_id }}</td>
+            <td class="mono">{{ r.relative_path }}</td>
+            <td class="mono">{{ r.name }}</td>
+            <td><code>{{ r.extension or "" }}</code></td>
+            <td class="bytes">{{ r.size_bytes | format_bytes }}</td>
+            <td>{{ r.modified_utc or "" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if total_pages_files and total_pages_files > 1 %}
+    <div class="pagination">
+      {% if prev_url_files %}
+      <a href="{{ prev_url_files }}">Anterior</a>
+      {% else %}
+      <span class="disabled">Anterior</span>
+      {% endif %}
+      <span class="current">Pàgina {{ page_files }} de {{ total_pages_files }}</span>
+      {% if next_url_files %}
+      <a href="{{ next_url_files }}">Següent</a>
+      {% else %}
+      <span class="disabled">Següent</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">No s'han trobat fitxers.</div>
+    {% endif %}
+  {% endif %}
+
+  {% if search_type in ("folders", "both") %}
+    <h2>Carpetes</h2>
+    <p><strong>{{ total_folders }}</strong> coincidència(s). Pàgina {{ page_folders }} de {{ total_pages_folders }}.</p>
+    {% if rows_folders %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" {% if sort_folders == "drive_id" %}aria-sort="{% if dir_folders == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_folders.drive_id }}">Disc{% if sort_folders == "drive_id" %} <span class="sort-arrow" aria-hidden="true">{% if dir_folders == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_folders == "folder_path" %}aria-sort="{% if dir_folders == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_folders.folder_path }}">Carpeta{% if sort_folders == "folder_path" %} <span class="sort-arrow" aria-hidden="true">{% if dir_folders == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_folders == "folder_depth" %}aria-sort="{% if dir_folders == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_folders.folder_depth }}">Profunditat{% if sort_folders == "folder_depth" %} <span class="sort-arrow" aria-hidden="true">{% if dir_folders == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_folders == "files_count" %}aria-sort="{% if dir_folders == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_folders.files_count }}">Fitxers{% if sort_folders == "files_count" %} <span class="sort-arrow" aria-hidden="true">{% if dir_folders == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+            <th class="sortable" {% if sort_folders == "total_bytes" %}aria-sort="{% if dir_folders == "asc" %}ascending{% else %}descending{% endif %}"{% endif %}>
+              <a href="{{ sort_urls_folders.total_bytes }}">Mida{% if sort_folders == "total_bytes" %} <span class="sort-arrow" aria-hidden="true">{% if dir_folders == "asc" %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows_folders %}
+          <tr>
+            <td>{{ r.drive_id }}</td>
+            <td class="mono">{{ r.folder_path }}</td>
+            <td>{{ r.folder_depth if r.folder_depth is not none else "" }}</td>
+            <td>{{ r.files_count | default(0) | int }}</td>
+            <td class="bytes">{{ r.total_bytes | default(0) | int | format_bytes }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if total_pages_folders and total_pages_folders > 1 %}
+    <div class="pagination">
+      {% if prev_url_folders %}
+      <a href="{{ prev_url_folders }}">Anterior</a>
+      {% else %}
+      <span class="disabled">Anterior</span>
+      {% endif %}
+      <span class="current">Pàgina {{ page_folders }} de {{ total_pages_folders }}</span>
+      {% if next_url_folders %}
+      <a href="{{ next_url_folders }}">Següent</a>
+      {% else %}
+      <span class="disabled">Següent</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">No s'han trobat carpetes.</div>
+    {% endif %}
+  {% endif %}
+{% else %}
+<p class="page-description">Introduïu una paraula clau per cercar.</p>
+{% endif %}
+<script>
+(function () {
+  var searchType = document.getElementById('search_type');
+  var optionsFiles = document.getElementById('search-options-files');
+  var optionsFolders = document.getElementById('search-options-folders');
+  if (!searchType || !optionsFiles || !optionsFolders) return;
+  function updateVisibility() {
+    var v = searchType.value;
+    var showFiles = v === 'files' || v === 'both';
+    var showFolders = v === 'folders' || v === 'both';
+    optionsFiles.style.display = showFiles ? '' : 'none';
+    optionsFiles.setAttribute('aria-hidden', showFiles ? 'false' : 'true');
+    optionsFolders.style.display = showFolders ? '' : 'none';
+    optionsFolders.setAttribute('aria-hidden', showFolders ? 'false' : 'true');
+  }
+  searchType.addEventListener('change', updateVisibility);
+  updateVisibility();
+})();
+</script>
+{% endblock %}
