@@ -71,6 +71,10 @@ L’aplicació pot arrencar **sense cap fitxer de base de dades**. En aquest cas
 | `/discs` | Gestió de discs: auditar i incorporar o actualitzar un disc |
 | `/health` | Comprova si la DB existeix (retorn JSON) |
 
+## Documentació
+
+La carpeta **`docs/`** conté la documentació en format Markdown. Si actives **GitHub Pages** al repositori (Settings → Pages → Deploy from a branch → branch **main**, carpeta **/docs**), es publicarà a `https://elmoromussa.github.io/discscope/`. Instruccions detallades: [docs/CONFIGURAR_GITHUB.md](docs/CONFIGURAR_GITHUB.md).
+
 ## Git i GitHub
 
 El fitxer `.gitignore` exclou `data/`, `venv/`, `*.db` i `.env`, de manera que en fer push no es pugen dades personals ni l'entorn virtual. Nom recomanat per al repositori: **DiscScope** (o `discscope` en minúscules). Per instruccions per pujar el projecte a GitHub, vegeu la guia a continuació.
